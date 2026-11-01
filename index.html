@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Cube 3D</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 25%,#20304a,#080d18 70%);color:#f5f7ff;font:15px system-ui;overflow:hidden}
+header{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #ffffff20;background:#080d18aa}
+h1{font-size:20px;margin:0;letter-spacing:1px}.tag{color:#9fb4d8;font-size:12px}
+#stage{position:absolute;inset:58px 0 220px;touch-action:none}#stage canvas{display:block;width:100%;height:100%}
+.panel{position:absolute;bottom:0;left:0;right:0;padding:12px 14px max(14px,env(safe-area-inset-bottom));background:#0b1220ed;border-top:1px solid #ffffff22;max-height:48vh;overflow:auto}
+.row{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin:7px 0}
+button,select{border:1px solid #526681;background:#1a2940;color:white;border-radius:10px;padding:10px 13px;font-weight:650;font-size:14px}
+button:active{transform:scale(.96);background:#345078}.move{min-width:48px;font-size:17px}.wide{background:#29456b}.hint{text-align:center;color:#aabbd5;font-size:12px;margin-top:6px}
+select{padding:9px}.label{color:#b7c8e2;font-size:13px}
+</style></head><body>
+<header><div><h1>🧊 CUBE 3D</h1><div class="tag">Real 3D • Turn the faces • Play on mobile</div></div><div class="tag">Drag to orbit</div></header>
+<div id="stage"></div>
+<div class="panel">
+ <div class="row"><span class="label">Cube size</span><select id="size"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option></select><button id="new" class="wide">Create cube</button><button id="scramble">Scramble</button><button id="reset">Reset</button></div>
+ <div class="row"><span class="label">Turn a face</span></div>
+ <div class="row" id="moves"></div>
+ <div class="row"><button id="sound">🔊 Sound on</button><button id="help">How to play</button></div>
+ <div class="hint" id="status">Drag the cube to view it. Tap a move to turn a face.</div>
+</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+const stage=document.querySelector('#stage'),status=document.querySelector('#status'),sizeSel=document.querySelector('#size');
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x101827);
+const camera=new THREE.PerspectiveCamera(38,1,.1,100);camera.position.set(6,6,8);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;stage.appendChild(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.07;controls.minDistance=3;controls.maxDistance=25;
+scene.add(new THREE.HemisphereLight(0xffffff,0x536078,2));const light=new THREE.DirectionalLight(0xffffff,2.4);light.position.set(5,8,7);scene.add(light);
+const colors={R:0xc62828,L:0xff8c20,U:0xffffff,D:0xffd500,F:0x20b65a,B:0x2474e8};
+let n=3,cubies=[],busy=false,soundOn=true,audioCtx=null;
+const root=new THREE.Group();scene.add(root);
+const unit=1,gap=.045;
+function makeCube(count){
+ n=count;sizeSel.value=String(n);while(root.children.length)root.remove(root.children[0]);cubies=[];const step=unit+gap,offset=(n-1)*step/2;
+ const geo=new THREE.BoxGeometry(unit,unit,unit);
+ for(let x=0;x<n;x++)for(let y=0;y<n;y++)for(let z=0;z<n;z++){
+  const mats=[
+   new THREE.MeshStandardMaterial({color:x===n-1?colors.R:0x171c27,roughness:.48}),
+   new THREE.MeshStandardMaterial({color:x===0?colors.L:0x171c27,roughness:.48}),
+   new THREE.MeshStandardMaterial({color:y===n-1?colors.U:0x171c27,roughness:.48}),
+   new THREE.MeshStandardMaterial({color:y===0?colors.D:0x171c27,roughness:.48}),
+   new THREE.MeshStandardMaterial({color:z===n-1?colors.F:0x171c27,roughness:.48}),
+   new THREE.MeshStandardMaterial({color:z===0?colors.B:0x171c27,roughness:.48})
+  ];
+  const mesh=new THREE.Mesh(geo,mats);mesh.position.set(x*step-offset,y*step-offset,z*step-offset);mesh.userData={x,y,z};root.add(mesh);cubies.push(mesh);
+ }
+ const extent=n*step;camera.position.set(extent*1.25,extent*1.15,extent*1.55);controls.target.set(0,0,0);controls.update();status.textContent=n+'×'+n+'×'+n+' cube ready';
+}
+function beep(){if(!soundOn)return;try{audioCtx??=new AudioContext();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.value=420;g.gain.setValueAtTime(.045,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.09);o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+.1)}catch{}}
+function turn(face,dir=1){
+ if(busy)return;busy=true;beep();
+ const axis=({R:'x',L:'x',U:'y',D:'y',F:'z',B:'z'})[face],layer=({R:n-1,L:0,U:n-1,D:0,F:n-1,B:0})[face];
+ const sign=({R:1,L:-1,U:1,D:-1,F:1,B:-1})[face]*dir;
+ const selected=cubies.filter(m=>m.userData[axis]===layer);
+ const pivot=new THREE.Group();root.add(pivot);
+ selected.forEach(m=>{root.remove(m);pivot.add(m)});
+ const start=performance.now(),duration=190,angle=sign*Math.PI/2;
+ function animate(now){const t=Math.min(1,(now-start)/duration),ease=1-Math.pow(1-t,3);pivot.rotation[axis]=angle*ease;
+ if(t<1){requestAnimationFrame(animate);return}
+ pivot.rotation[axis]=angle;pivot.updateMatrixWorld(true);
+ const step=unit+gap;
+ selected.forEach(m=>{
+  m.applyMatrix4(pivot.matrix);root.add(m);
+  const p=m.position; p.set(Math.round(p.x/step)*step,Math.round(p.y/step)*step,Math.round(p.z/step)*step);
+  m.position.set(p.x,p.y,p.z);
+  const q=m.quaternion; q.setFromRotationMatrix(new THREE.Matrix4().extractRotation(m.matrix));
+  // Reconstruct exact cubelet orientation from pivot's quarter-turn.
+  m.quaternion.premultiply(pivot.quaternion);
+  const old=m.userData,coord=[old.x,old.y,old.z],c=coord.map(v=>v-(n-1)/2);
+  let v=c;
+  if(axis==='x')v=[c[0],-sign*c[2],sign*c[1]];
+  if(axis==='y')v=[sign*c[2],c[1],-sign*c[0]];
+  if(axis==='z')v=[-sign*c[1],sign*c[0],c[2]];
+  m.userData={x:Math.round(v[0]+(n-1)/2),y:Math.round(v[1]+(n-1)/2),z:Math.round(v[2]+(n-1)/2)};
+ });
+ root.remove(pivot);busy=false;status.textContent=face+(dir===1?'':'′')+' turned';
+ }
+ requestAnimationFrame(animate);
+}
+const moves=document.querySelector('#moves');
+for(const f of ['U','R','F','L','D','B']){const b=document.createElement('button');b.className='move';b.textContent=f;b.onclick=()=>turn(f,1);moves.appendChild(b);const inv=document.createElement('button');inv.className='move';inv.textContent=f+'′';inv.onclick=()=>turn(f,-1);moves.appendChild(inv)}
+document.querySelector('#new').onclick=()=>makeCube(+sizeSel.value);
+document.querySelector('#reset').onclick=()=>makeCube(n);
+document.querySelector('#scramble').onclick=()=>{if(busy)return;let i=0;const fs=['U','R','F','L','D','B'];function next(){if(i++>=Math.min(25,n*5))return;turn(fs[Math.floor(Math.random()*6)],Math.random()<.5?1:-1);setTimeout(next,230)}next()};
+document.querySelector('#sound').onclick=e=>{soundOn=!soundOn;e.target.textContent=soundOn?'🔊 Sound on':'🔇 Sound off';if(soundOn)beep()};
+document.querySelector('#help').onclick=()=>status.textContent='Drag anywhere on the cube to orbit. Tap U/R/F/L/D/B to turn a face; tap the ′ button for the reverse turn. Choose a size then Create cube.';
+function resize(){const w=stage.clientWidth,h=stage.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h)}
+new ResizeObserver(resize).observe(stage);resize();makeCube(3);
+function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera)}loop();
+</script></body></html>
